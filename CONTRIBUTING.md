@@ -7,7 +7,8 @@ Thank you for your interest in contributing to `aws-fargate-workload-runner`.
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -r requirements-dev.txt
+pip install -e .
 ```
 
 ## Adding a New Scenario
