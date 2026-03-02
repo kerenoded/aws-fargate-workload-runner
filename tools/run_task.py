@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 import uuid
@@ -37,8 +38,13 @@ from tools.tf_outputs import terraform_outputs
 TF_DIR = Path(__file__).resolve().parents[1] / "infra" / "terraform"
 STREAM_PREFIX = "run"  # must match awslogs-stream-prefix in ecs.tf
 POLL_SECONDS = 15
-LOG_TAIL_SECONDS = 5
 
+# Resolve region from environment when available.  When neither var is set we
+# leave region_name out of boto3 calls entirely so the SDK can apply its own
+# resolution chain (profile, instance metadata, etc.) without us overriding it
+# with an explicit None.
+REGION: str | None = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+_REGION_KW: dict = {"region_name": REGION} if REGION else {}
 
 def _upload_config(s3, bucket: str, run_id: str, config: dict) -> str:
     key = f"configs/{run_id}.json"
@@ -52,29 +58,73 @@ def _upload_config(s3, bucket: str, run_id: str, config: dict) -> str:
 
 
 def _register_task_def_with_tag(ecs, task_def_arn: str, image_tag: str, ecr_url: str, container_name: str) -> str:
-    """Describe the current task def, swap the image tag, register new revision."""
+    """Describe the current task def, swap the image tag, register a new revision.
+
+    Preserves all ECS-supported fields from the source revision so that nothing
+    is silently dropped (volumes, placement constraints, runtime platform, etc.).
+    Fields that are read-only in describe_task_definition (revision, status, ARN…)
+    are never included — they are not valid inputs for register_task_definition.
+    """
+    if ".dkr.ecr." not in ecr_url or ".amazonaws.com" not in ecr_url:
+        raise SystemExit(f"ecr_url does not look like a valid ECR URL: {ecr_url!r}")
+
     resp = ecs.describe_task_definition(taskDefinition=task_def_arn)
     td = resp["taskDefinition"]
 
-    # Rebuild image URI with the new tag
-    base = ecr_url.split(":")[0]  # strip any existing tag
+    # Rebuild image URI with the new tag (strip any existing tag from the URL).
+    base = ecr_url.split(":")[0]
     new_image = f"{base}:{image_tag}"
 
-    containers = td["containerDefinitions"]
+    # Shallow-copy each container definition so the original list is never mutated.
+    containers = [{**c} for c in td.get("containerDefinitions") or []]
+    if not any(c.get("name") == container_name for c in containers):
+        raise SystemExit(
+            f"Container '{container_name}' not found in task definition: {task_def_arn}"
+        )
     for c in containers:
-        if c["name"] == container_name:
+        if c.get("name") == container_name:
             c["image"] = new_image
 
-    new_td = ecs.register_task_definition(
-        family=td["family"],
-        taskRoleArn=td["taskRoleArn"],
-        executionRoleArn=td["executionRoleArn"],
-        networkMode=td["networkMode"],
-        containerDefinitions=containers,
-        requiresCompatibilities=td.get("requiresCompatibilities", ["FARGATE"]),
-        cpu=td["cpu"],
-        memory=td["memory"],
-    )
+    # Whitelist every key accepted by register_task_definition.  We copy from
+    # describe_task_definition output only when the key is present and non-None,
+    # so new fields added by AWS in the future are carried through automatically
+    # as long as they share the same name in both APIs.
+    _REQUIRED = {
+        "family",
+        "containerDefinitions",
+    }
+    # List-typed fields: default to [] rather than omitting them so the API
+    # never receives explicit None for a list parameter.
+    _LIST_FIELDS = {
+        "volumes",
+        "placementConstraints",
+        "requiresCompatibilities",
+        "inferenceAccelerators",
+        "tags",
+    }
+    # Scalar / object fields carried through only when present in the source.
+    _OPTIONAL = {
+        "taskRoleArn",
+        "executionRoleArn",
+        "networkMode",
+        "cpu",
+        "memory",
+        "runtimePlatform",
+        "ephemeralStorage",
+        "proxyConfiguration",
+        "ipcMode",
+        "pidMode",
+    }
+
+    payload: dict = {"family": td["family"], "containerDefinitions": containers}
+    for key in _LIST_FIELDS:
+        payload[key] = td.get(key) or []
+    for key in _OPTIONAL:
+        val = td.get(key)
+        if val is not None:
+            payload[key] = val
+
+    new_td = ecs.register_task_definition(**payload)
     return new_td["taskDefinition"]["taskDefinitionArn"]
 
 
@@ -90,6 +140,7 @@ def _tail_stream_incremental(logs, log_group: str, stream_name: str, start_ms: i
     """Fetch new log events from start_ms onward. Returns (new_start_ms, events_printed)."""
     printed = 0
     next_token = None
+    last_token = None
 
     for _ in range(10):  # up to 10 pages per poll to handle log bursts
         kwargs: dict = {
@@ -112,8 +163,11 @@ def _tail_stream_incremental(logs, log_group: str, stream_name: str, start_ms: i
             start_ms = max(start_ms, e["timestamp"] + 1)
 
         next_token = resp.get("nextToken")
-        if not next_token:
+        # CloudWatch can return the same nextToken when there are no new pages;
+        # stop paging to avoid an infinite loop.
+        if not next_token or next_token == last_token:
             break
+        last_token = next_token
 
     return start_ms, printed
 
@@ -181,7 +235,7 @@ def main() -> int:
     bucket = outs["artifacts_bucket_name"]
     ecr_url = outs["ecr_repo_url"]
 
-    session = boto3.Session()
+    session = boto3.Session(**_REGION_KW)
     s3 = session.client("s3")
     ecs = session.client("ecs")
 
@@ -243,7 +297,7 @@ def main() -> int:
     # --- Wait for task to stop, tailing logs incrementally while running ---
     print(f"\nWaiting for task to stop (polling every {args.poll_seconds}s)...")
 
-    logs_client = boto3.Session().client("logs") if args.tail and log_group else None
+    logs_client = boto3.Session(**_REGION_KW).client("logs") if args.tail and log_group else None
     tail_start_ms = int(time.time() * 1000)
     last_status = None
 
