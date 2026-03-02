@@ -7,24 +7,32 @@ build/
 .venv/
 venv/
 *.egg
+.coverage
 coverage/
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.cache/
 
 # Terraform
-infra/terraform/.terraform/
-infra/terraform/terraform.tfstate
-infra/terraform/terraform.tfstate.backup
-infra/terraform/backend.tf
+**/.terraform/
+*.tfstate
+*.tfstate.*
 *.tfplan
 *.tfvars
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+crash.log
+crash.*.log
+infra/terraform/backend.tf  # keep if using backend.tf.example pattern
 
 # Test results
 test-results/
 
-# pytest
-.pytest_cache/
-
 # Local configs (keep real endpoints and credentials out of VCS)
-loadtest/**/*.local.json
+*.local.json
 
 # Misc
 .DS_Store
