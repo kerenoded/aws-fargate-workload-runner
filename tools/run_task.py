@@ -217,7 +217,7 @@ def main() -> int:
 
     # --- Load config ---
     if args.config_file:
-        with open(args.config_file) as fh:
+        with open(args.config_file, encoding="utf-8") as fh:
             config = json.load(fh)
     else:
         config = json.loads(args.config_json)

@@ -319,7 +319,7 @@ class SQSMonitor:
             timestamps = r.get("Timestamps", [])
             values = r.get("Values", [])
             if values:
-                # Datapoints are returned in ascending timestamp order; pick the most recent.
+                # Datapoints may be in any order; pick the one with the most recent timestamp.
                 _, latest_value = max(zip(timestamps, values), key=lambda tv: tv[0])
                 result[name] = str(int(latest_value))
             else:

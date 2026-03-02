@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 import boto3
+from botocore.exceptions import ClientError
 
 if __package__ is None and __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -45,8 +46,11 @@ def main() -> int:
             print(f"Downloading s3://{bucket}/{key} → {dest}")
             s3.download_file(bucket, key, str(dest))
             fetched += 1
-        except s3.exceptions.NoSuchKey:
-            print(f"  Not found (skipping): {key}")
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] in ("NoSuchKey", "NotFound", "404"):
+                print(f"  Not found (skipping): {key}")
+            else:
+                print(f"  ERROR fetching {key}: {exc}", file=sys.stderr)
         except Exception as exc:  # noqa: BLE001
             print(f"  ERROR fetching {key}: {exc}", file=sys.stderr)
 

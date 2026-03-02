@@ -26,8 +26,8 @@ variable "sqs_queue_arns" {
   }
 
   validation {
-    condition     = alltrue([for arn in var.sqs_queue_arns : can(regex("^arn:aws:sqs:", arn))])
-    error_message = "Every entry in sqs_queue_arns must be a valid SQS ARN (starting with arn:aws:sqs:)."
+    condition     = alltrue([for arn in var.sqs_queue_arns : can(regex("^arn:aws(-us-gov|-cn)?:sqs:", arn))])
+    error_message = "Every entry in sqs_queue_arns must be a valid SQS ARN (arn:aws:sqs:, arn:aws-us-gov:sqs:, or arn:aws-cn:sqs:)."
   }
 }
 

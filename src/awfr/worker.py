@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import signal
 import sys
 import tempfile
@@ -237,5 +238,13 @@ def run() -> int:
         f"counters={json.dumps(counters)}",
         flush=True,
     )
+
+    # ------------------------------------------------------------------ #
+    # 10. Clean up temp directory (best-effort)                            #
+    # ------------------------------------------------------------------ #
+    try:
+        shutil.rmtree(work_dir, ignore_errors=True)
+    except Exception:  # noqa: BLE001
+        pass
 
     return final_exit_code
