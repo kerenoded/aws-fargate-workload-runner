@@ -1,0 +1,19 @@
+{
+  "scenario": "iot_core_topic_publish",
+  "runner": {
+    "metrics_upload_interval_seconds": 0
+  },
+  "config": {
+    "topic_pattern": "devices/{device_id}/telemetry",
+    "device_count": 10,
+    "publish_rate_per_second": 10.0,
+    "duration_seconds": 15,
+    "payload_template": {
+      "device_id": "{device_id}",
+      "event": "temperature",
+      "value": 22.5,
+      "unit": "celsius"
+    },
+    "concurrency": 4
+  }
+}

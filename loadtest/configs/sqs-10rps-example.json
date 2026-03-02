@@ -1,0 +1,17 @@
+{
+  "scenario": "sqs_enqueue",
+  "runner": {
+    "metrics_upload_interval_seconds": 0
+  },
+  "config": {
+    "queue_url": "https://sqs.eu-west-1.amazonaws.com/1234567890/awfr-iot-test-queue",
+    "message_template": {
+      "event": "order_placed",
+      "order_id": "{message_id}",
+      "amount": 42.0
+    },
+    "enqueue_rate_per_second": 10.0,
+    "duration_seconds": 15,
+    "concurrency": 4
+  }
+}

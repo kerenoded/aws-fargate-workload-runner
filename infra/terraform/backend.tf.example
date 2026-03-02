@@ -1,0 +1,13 @@
+# Remote state backend (S3 + DynamoDB lock).
+# Copy this file to backend.tf, fill in your values, and run:
+#   terraform init -migrate-state
+
+# terraform {
+#   backend "s3" {
+#     bucket         = "<your-tfstate-bucket>"
+#     key            = "awfr/terraform.tfstate"
+#     region         = "eu-west-1"
+#     dynamodb_table = "<your-lock-table>"
+#     encrypt        = true
+#   }
+# }
