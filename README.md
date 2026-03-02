@@ -35,6 +35,8 @@ Two scenarios are included out of the box: **IoT Core topic publish** (`iot_core
 
 ## Architecture
 
+![Architecture diagram](docs/images/aws-fargate-workload-runner-architecture.gif)
+
 ```
 Laptop
   ├─ tools/build_push.py  →  builds Docker image  →  pushes to ECR
@@ -178,6 +180,8 @@ python tools/run_task.py \
 
 After the task exits, artifacts are in `s3://<bucket>/runs/<RUN_ID>/`.
 
+![Example execution](docs/images/example-execution.gif)
+
 ### 5. Fetch artifacts locally
 
 ```bash
@@ -210,6 +214,8 @@ python tools/run_task.py --scenario <name> (--config-file PATH | --config-json J
 | `metrics_upload_interval_seconds` *(runner config JSON)* | ❌ | `0` | Set in the `runner` section of the config JSON. Periodic S3 upload interval for `metrics.jsonl`; `0` = upload only at end of run — see [Periodic Upload](#periodic-upload-optional). |
 
 > **Task-def revision accumulation:** each `--image-tag` invocation registers a new ECS task-def revision. ECS has a soft limit of 1 million revisions per family. For frequent CI-style usage, periodically deregister old revisions with `aws ecs deregister-task-definition`.
+
+![ECS run logs tailed in the terminal](docs/images/ECS-run-logs.png)
 
 ---
 
@@ -481,6 +487,8 @@ The `[SQS][config]` line is printed **once per queue on the first poll** — it 
 ```
 [SQS][age][12:03:30][run_id=abc-123] queue=my-queue oldest_age_sec=14
 ```
+
+![ApproximateAgeOfOldestMessage in the AWS console](docs/images/from-aws-console-ApproximateAgeOfOldestMessage.png)
 
 The format is structured for CloudWatch Logs Insights queries, e.g.:
 
