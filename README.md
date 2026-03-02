@@ -51,9 +51,10 @@ ECS Fargate Task
 AWS Services
   ├─ ECR          (container registry)
   ├─ ECS Fargate  (ephemeral tasks, no long-running infra)
-  ├─ S3           (configs/  and  runs/)
-  ├─ CloudWatch   (task logs, SQS queue depth metrics)
-  ├─ IoT Core     (iot_core_topic_publish scenario)
+  ├─ S3                (configs/  and  runs/)
+  ├─ CloudWatch Logs    (task stdout / stderr)
+  ├─ CloudWatch Metrics (GetMetricData — SQS ApproximateAgeOfOldestMessage)
+  ├─ IoT Core           (iot_core_topic_publish scenario)
   └─ SQS          (sqs_enqueue scenario + queue depth monitoring)
 ```
 
@@ -103,7 +104,7 @@ terraform apply -var="project=awfr-dev"
 | `artifacts_retention_days` | `30` | S3 lifecycle expiry (days) on `runs/*` and `configs/*` objects |
 | `container_insights` | `false` | Enable ECS Container Insights. Optional — not required for any scenario. When enabled, CloudWatch collects CPU, memory, and network metrics for the Fargate tasks running the load test. Useful for diagnosing runner bottlenecks (e.g. CPU saturation or OOM), but increases CloudWatch costs. |
 | `enable_sqs_permissions` | `false` | Attach SQS IAM policies to the task role. **Required** if you use the `sqs_enqueue` scenario **or** if you want to monitor SQS queue depth (via `sqs_monitor_interval_seconds`) while running any scenario. Setting this to `true` enforces least-privilege: permissions are scoped to the exact ARNs in `sqs_queue_arns`. |
-| `sqs_queue_arns` | `[]` | List of SQS queue ARNs the task role may send to and monitor. Required when `enable_sqs_permissions=true`. Both `sqs:SendMessage` / `sqs:SendMessageBatch` (for `sqs_enqueue`) and `sqs:GetQueueAttributes` / `cloudwatch:GetMetricData` (for SQS monitoring) are scoped to this list. |
+| `sqs_queue_arns` | `[]` | List of SQS queue ARNs the task role may send to and monitor. Required when `enable_sqs_permissions=true`. Both `sqs:SendMessage` / `sqs:SendMessageBatch` (for `sqs_enqueue`) and `sqs:GetQueueAttributes` / `cloudwatch:GetMetricData` (for SQS monitoring) are scoped to this list. ARN validation supports AWS commercial, GovCloud, and China partitions. |
 
 #### IAM design: least privilege + optional scenario isolation
 
@@ -134,7 +135,11 @@ terraform apply -var="enable_sqs_permissions=false"
 
 > **Tip:** When adding a new scenario (see [Adding a New Scenario](#adding-a-new-scenario)), add a dedicated `iam_<scenario>.tf` file with its own `enable_<scenario>_permissions` toggle — this keeps each scenario's blast radius fully isolated.
 
-> **Remote state (recommended for shared use):** By default Terraform stores state locally in `terraform.tfstate`. If you lose that file you lose the ability to manage or destroy the infrastructure. A ready-to-use S3 + DynamoDB backend template is provided at `infra/terraform/backend.tf.example` — copy it to `backend.tf`, fill in your bucket/table names, and re-run `terraform init` to migrate.
+### Remote State (Recommended)
+
+By default, Terraform stores state locally in `terraform.tfstate`. Losing this file means you can no longer manage or destroy the infrastructure with Terraform.
+
+A ready-to-use S3 + DynamoDB backend template is provided at `infra/terraform/backend.tf.example`. Copy it to `backend.tf`, fill in your bucket and table names, then re-run `terraform init` to migrate state to the remote backend.
 
 ### 3. Build and push the Docker image
 
@@ -266,6 +271,8 @@ Every config file is a JSON object with three top-level keys:
 ### `iot_core_topic_publish`
 
 Publishes MQTT messages to AWS IoT Core via the IoT Data Plane HTTP API (no MQTT client, no device registrations).
+
+This scenario uses the AWS IoT Data Plane HTTP API (boto3 `iot-data` publish), not MQTT over WebSockets, and does not require IoT Thing registration.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -482,7 +489,7 @@ Each poll prints one line per queue:
 
 The `[SQS][config]` line is printed **once per queue on the first poll** — it captures `VisibilityTimeout` and `ReceiveMessageWaitTimeSeconds`, which explain in-flight behaviour and whether long-polling is active without repeating them every interval.
 
-`ApproximateAgeOfOldestMessage` is published to CloudWatch with a 1–2 minute lag, so it is printed on a **separate `[SQS][age]` line** at the start of monitoring, at the end of the run, and at most every 4 minutes in between — not on every poll:
+`ApproximateAgeOfOldestMessage` is read from **CloudWatch Metrics** via `GetMetricData` (not from CloudWatch Logs), which introduces a 1–2 minute publication lag. It is printed on a **separate `[SQS][age]` line** at the start of monitoring, at the end of the run, and at most every 4 minutes in between — not on every poll:
 
 ```
 [SQS][age][12:03:30][run_id=abc-123] queue=my-queue oldest_age_sec=14
