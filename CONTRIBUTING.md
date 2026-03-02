@@ -13,8 +13,22 @@ pip install -e ".[dev]"
 ## Adding a New Scenario
 
 1. Create `src/awfr/scenarios/<your_scenario>.py`.
-2. Implement a `run(cfg: dict, metrics: MetricsWriter, stop_event: threading.Event) -> None` function.
-3. Register the scenario in `src/awfr/scenarios/__init__.py`.
+2. Implement a module-level entrypoint with this exact signature:
+   ```python
+   def run(run_env: RunEnv, metrics_writer: MetricsWriter) -> dict:
+       ...
+   ```
+   The return value is a plain `dict` that is merged into `summary.json` — include any
+   scenario-level counters you want surfaced (e.g. `{"sends_succeeded": 1000, "sends_failed": 2}`).
+3. Register the scenario in `src/awfr/scenarios/registry.py`:
+   ```python
+   from awfr.scenarios import your_scenario
+
+   SCENARIOS = {
+       ...
+       "your_scenario": your_scenario.run,
+   }
+   ```
 4. Add a sample config JSON under `loadtest/configs/`.
 5. Update `README.md` with the config schema.
 

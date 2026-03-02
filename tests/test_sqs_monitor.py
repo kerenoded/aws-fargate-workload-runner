@@ -44,14 +44,39 @@ def test_arn_to_queue_url_valid():
     "bad_arn",
     [
         "not-an-arn",
-        "arn:aws:s3:eu-west-1:123456789012:my-queue",  # wrong service
-        "arn:aws:sqs:eu-west-1::my-queue",              # empty account
-        "arn:aws:sqs:eu-west-1:123456789012:",          # empty queue name
+        "arn:aws:s3:eu-west-1:123456789012:my-queue",   # wrong service
+        "arn:aws:sqs:eu-west-1::my-queue",               # empty account
+        "arn:aws:sqs:eu-west-1:123456789012:",           # empty queue name
+        "arn:aws-fake:sqs:eu-west-1:123456789012:q",    # unknown partition
     ],
 )
 def test_arn_to_queue_url_invalid_raises(bad_arn):
     with pytest.raises(ConfigError):
         _arn_to_queue_url(bad_arn)
+
+
+@pytest.mark.parametrize(
+    "arn,expected_url",
+    [
+        # Standard partition
+        (
+            "arn:aws:sqs:eu-west-1:123456789012:my-queue",
+            "https://sqs.eu-west-1.amazonaws.com/123456789012/my-queue",
+        ),
+        # GovCloud partition — same domain suffix as standard
+        (
+            "arn:aws-us-gov:sqs:us-gov-east-1:123456789012:my-queue",
+            "https://sqs.us-gov-east-1.amazonaws.com/123456789012/my-queue",
+        ),
+        # China partition — uses amazonaws.com.cn
+        (
+            "arn:aws-cn:sqs:cn-north-1:123456789012:my-queue",
+            "https://sqs.cn-north-1.amazonaws.com.cn/123456789012/my-queue",
+        ),
+    ],
+)
+def test_arn_to_queue_url_all_partitions(arn, expected_url):
+    assert _arn_to_queue_url(arn) == expected_url
 
 
 # ---------------------------------------------------------------------------

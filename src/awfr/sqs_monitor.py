@@ -47,24 +47,41 @@ _STARTUP_ATTRS = [
 ]
 
 
+# All AWS partitions that host SQS.  China uses a different endpoint domain.
+_VALID_PARTITIONS = frozenset({"aws", "aws-us-gov", "aws-cn"})
+
+
 def _arn_to_queue_url(arn: str) -> str:
-    """Convert arn:aws:sqs:REGION:ACCOUNT:NAME → HTTPS queue URL.
+    """Convert an SQS ARN → HTTPS queue URL for standard, GovCloud, and China partitions.
+
+    Supported ARN formats:
+      arn:aws:sqs:REGION:ACCOUNT:NAME          (standard)
+      arn:aws-us-gov:sqs:REGION:ACCOUNT:NAME   (GovCloud)
+      arn:aws-cn:sqs:REGION:ACCOUNT:NAME       (China)
 
     Pure string conversion — no API calls.
     Raises ConfigError on bad format so the worker fails fast (exit 2).
     """
     parts = arn.split(":")
-    if len(parts) != 6 or parts[:3] != ["arn", "aws", "sqs"]:
+    if (
+        len(parts) != 6
+        or parts[0] != "arn"
+        or parts[1] not in _VALID_PARTITIONS
+        or parts[2] != "sqs"
+    ):
         raise ConfigError(
             f"Invalid SQS ARN {arn!r} in sqs_monitor_arns — "
-            "expected format: arn:aws:sqs:REGION:ACCOUNT:NAME"
+            "expected format: arn:aws:sqs:REGION:ACCOUNT:NAME "
+            "(also accepts aws-us-gov and aws-cn partitions)"
         )
-    _, _, _, region, account, name = parts
+    _, partition, _, region, account, name = parts
     if not region or not account or not name:
         raise ConfigError(
             f"SQS ARN {arn!r} has an empty region, account, or queue name"
         )
-    return f"https://sqs.{region}.amazonaws.com/{account}/{name}"
+    # China endpoints use amazonaws.com.cn; all other partitions use amazonaws.com.
+    domain = "amazonaws.com.cn" if partition == "aws-cn" else "amazonaws.com"
+    return f"https://sqs.{region}.{domain}/{account}/{name}"
 
 
 class SQSMonitor:

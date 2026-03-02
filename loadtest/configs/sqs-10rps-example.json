@@ -4,7 +4,7 @@
     "metrics_upload_interval_seconds": 0
   },
   "config": {
-    "queue_url": "https://sqs.eu-west-1.amazonaws.com/1234567890/awfr-iot-test-queue",
+    "queue_url": "https://sqs.eu-west-1.amazonaws.com/123456789012/awfr-iot-test-queue",
     "message_template": {
       "event": "order_placed",
       "order_id": "{message_id}",

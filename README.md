@@ -498,7 +498,7 @@ fields @timestamp, @message
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `project` | `awfr` | Name prefix for all resources |
-| `region` | `us-east-1` | AWS region |
+| `region` | `eu-west-1` | AWS region |
 | `image_tag` | `latest` | ECR image tag used in the task definition |
 | `artifacts_retention_days` | `30` | S3 lifecycle expiry on `runs/*` |
 | `container_insights` | `false` | Enable ECS Container Insights (optional, not required for any scenario — see Key Variables above) |
