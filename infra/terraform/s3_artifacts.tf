@@ -26,7 +26,9 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
   }
 }
 
-# Expire run artifacts after var.artifacts_retention_days days to bound cost.
+# Expire run artifacts and config objects after var.artifacts_retention_days days.
+# configs/<RUN_ID>.json objects are small but accumulate indefinitely without a
+# lifecycle rule — at high run frequency this becomes a cost and hygiene issue.
 resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
   bucket = aws_s3_bucket.artifacts.id
 
@@ -36,6 +38,19 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
 
     filter {
       prefix = "runs/"
+    }
+
+    expiration {
+      days = var.artifacts_retention_days
+    }
+  }
+
+  rule {
+    id     = "expire-configs"
+    status = "Enabled"
+
+    filter {
+      prefix = "configs/"
     }
 
     expiration {

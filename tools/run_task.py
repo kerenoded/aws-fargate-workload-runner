@@ -68,7 +68,10 @@ def _register_task_def_with_tag(ecs, task_def_arn: str, image_tag: str, ecr_url:
     if ".dkr.ecr." not in ecr_url or ".amazonaws.com" not in ecr_url:
         raise SystemExit(f"ecr_url does not look like a valid ECR URL: {ecr_url!r}")
 
-    resp = ecs.describe_task_definition(taskDefinition=task_def_arn)
+    # include=["TAGS"] is required — without it the API omits resource tags from
+    # the response, so the new revision would be registered with no tags and lose
+    # all Terraform-managed cost-allocation tags (Project, Purpose, ManagedBy).
+    resp = ecs.describe_task_definition(taskDefinition=task_def_arn, include=["TAGS"])
     td = resp["taskDefinition"]
 
     # Rebuild image URI with the new tag (strip any existing tag from the URL).
@@ -207,6 +210,10 @@ def main() -> int:
              "all queues in sqs_queue_arns. Omit to monitor all queues.",
     )
     args = ap.parse_args()
+
+    # --sqs-monitor-arns is meaningless without an interval; catch it early.
+    if args.sqs_monitor_arns and args.sqs_monitor_interval_seconds is None:
+        ap.error("--sqs-monitor-arns requires --sqs-monitor-interval-seconds")
 
     # --- Load config ---
     if args.config_file:

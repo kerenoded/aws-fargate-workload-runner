@@ -63,8 +63,13 @@ def load_run_env() -> RunEnv:
     config_s3_uri = _require_env("CONFIG_S3_URI")
     artifacts_bucket = _require_env("ARTIFACTS_BUCKET")
 
-    # Defensive region fallback (AWS_REGION injected by Fargate; never set in task def).
-    os.environ.setdefault("AWS_DEFAULT_REGION", os.environ.get("AWS_REGION", ""))
+    # Defensive region fallback: Fargate injects AWS_REGION automatically.
+    # Only propagate it when non-empty — setting AWS_DEFAULT_REGION to an empty
+    # string overrides boto3's own resolution chain (profile, ~/.aws/config,
+    # instance metadata) and causes confusing NoRegionError in local testing.
+    _aws_region = os.environ.get("AWS_REGION", "").strip()
+    if _aws_region:
+        os.environ.setdefault("AWS_DEFAULT_REGION", _aws_region)
 
     artifacts_prefix = f"runs/{run_id}/"
 
