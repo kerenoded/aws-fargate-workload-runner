@@ -1,6 +1,6 @@
 # aws-fargate-workload-runner
 
-[![Tests](https://github.com/odedkeren/aws-fargate-workload-runner/actions/workflows/tests.yaml/badge.svg)](https://github.com/odedkeren/aws-fargate-workload-runner/actions/workflows/tests.yaml)
+[![Tests](https://github.com/kerenoded/aws-fargate-workload-runner/actions/workflows/tests.yaml/badge.svg)](https://github.com/kerenoded/aws-fargate-workload-runner/actions/workflows/tests.yaml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
