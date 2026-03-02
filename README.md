@@ -1,9 +1,35 @@
 # aws-fargate-workload-runner
 
+[![Tests](https://github.com/odedkeren/aws-fargate-workload-runner/actions/workflows/tests.yaml/badge.svg)](https://github.com/odedkeren/aws-fargate-workload-runner/actions/workflows/tests.yaml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A generic AWS stress / traffic-generator framework that runs **entirely on ECS Fargate**.  
 Upload a JSON config, fire a single CLI command, and get back a `summary.json` + `metrics.jsonl` in S3.
 
 Two scenarios are included out of the box: **IoT Core topic publish** (`iot_core_topic_publish`) and **SQS enqueue** (`sqs_enqueue`). Additional scenarios can be added by registering a new module in `src/awfr/scenarios/registry.py` — see [Adding a New Scenario](#adding-a-new-scenario).
+
+---
+
+## Table of Contents
+
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [CLI Tools Reference](#cli-tools-reference)
+- [Scenario Config Format](#scenario-config-format)
+  - [iot\_core\_topic\_publish](#iot_core_topic_publish)
+  - [sqs\_enqueue](#sqs_enqueue)
+- [Adding a New Scenario](#adding-a-new-scenario)
+- [RunTask Contract](#runtask-contract)
+- [Exit Codes](#exit-codes)
+- [Periodic Upload](#periodic-upload-optional)
+- [SQS Queue Monitoring](#sqs-queue-monitoring-optional)
+- [Cost Model](#cost-model)
+- [Terraform Variables](#terraform-variables)
+- [Security Notes](#security-notes)
+- [Project Layout](#project-layout)
+- [Running Tests](#running-tests)
 
 ---
 
@@ -13,7 +39,7 @@ Two scenarios are included out of the box: **IoT Core topic publish** (`iot_core
 Laptop
   ├─ tools/build_push.py  →  builds Docker image  →  pushes to ECR
   ├─ tools/run_task.py    →  uploads config to S3  →  calls ECS RunTask
-  └─ tools/fetch_run.py  →  downloads artifacts from S3
+  └─ tools/fetch_run.py   →  downloads artifacts from S3
 
 ECS Fargate Task
   ├─ awfr worker  (SIGTERM-safe, typed exit codes)
@@ -36,10 +62,12 @@ The task exits cleanly; all state lives in S3.
 
 ## Prerequisites
 
-- AWS CLI configured with sufficient permissions
-- Terraform ≥ 1.6
-- Docker with `buildx` support (for `linux/amd64` cross-builds on Apple Silicon)
-- Python 3.11+ with a virtual environment
+| Tool | Minimum version | Notes |
+|------|----------------|-------|
+| AWS CLI | any | Configured with sufficient IAM permissions |
+| Terraform | 1.6 | For provisioning infra |
+| Docker | any with `buildx` | Needed for `linux/amd64` cross-builds on Apple Silicon |
+| Python | 3.11 | For the laptop CLI tools and in-container runtime |
 
 ---
 
@@ -70,7 +98,7 @@ terraform apply -var="project=awfr-dev"
 | `project` | `awfr` | Name prefix for every resource created |
 | `region` | `eu-west-1` | AWS region |
 | `image_tag` | `latest` | ECR image tag baked into the task definition |
-| `artifacts_retention_days` | `30` | S3 lifecycle expiry on `runs/*` objects |
+| `artifacts_retention_days` | `30` | S3 lifecycle expiry (days) on `runs/*` and `configs/*` objects |
 | `container_insights` | `false` | Enable ECS Container Insights. Optional — not required for any scenario. When enabled, CloudWatch collects CPU, memory, and network metrics for the Fargate tasks running the load test. Useful for diagnosing runner bottlenecks (e.g. CPU saturation or OOM), but increases CloudWatch costs. |
 | `enable_sqs_permissions` | `false` | Attach SQS IAM policies to the task role. **Required** if you use the `sqs_enqueue` scenario **or** if you want to monitor SQS queue depth (via `sqs_monitor_interval_seconds`) while running any scenario. Setting this to `true` enforces least-privilege: permissions are scoped to the exact ARNs in `sqs_queue_arns`. |
 | `sqs_queue_arns` | `[]` | List of SQS queue ARNs the task role may send to and monitor. Required when `enable_sqs_permissions=true`. Both `sqs:SendMessage` / `sqs:SendMessageBatch` (for `sqs_enqueue`) and `sqs:GetQueueAttributes` / `cloudwatch:GetMetricData` (for SQS monitoring) are scoped to this list. |
@@ -180,6 +208,8 @@ python tools/run_task.py --scenario <name> (--config-file PATH | --config-json J
 | `--sqs-monitor-interval-seconds N` | ❌ | disabled | Inject `sqs_monitor_interval_seconds` into the runner config at launch time. The container will poll SQS queue depth every N seconds and log to CloudWatch. Overrides any value already in the config file. |
 | `--sqs-monitor-arns ARN [ARN ...]` | ❌ | all queues | Inject `sqs_monitor_arns` into the runner config: monitor only these ARNs instead of all queues in `sqs_queue_arns`. Requires `--sqs-monitor-interval-seconds`. |
 | `metrics_upload_interval_seconds` *(runner config JSON)* | ❌ | `0` | Set in the `runner` section of the config JSON. Periodic S3 upload interval for `metrics.jsonl`; `0` = upload only at end of run — see [Periodic Upload](#periodic-upload-optional). |
+
+> **Task-def revision accumulation:** each `--image-tag` invocation registers a new ECS task-def revision. ECS has a soft limit of 1 million revisions per family. For frequent CI-style usage, periodically deregister old revisions with `aws ecs deregister-task-definition`.
 
 ---
 
@@ -301,12 +331,13 @@ Sends messages to an SQS queue using `sqs:SendMessage`.
 ## Adding a New Scenario
 
 1. Create `src/awfr/scenarios/<your_scenario>.py`.
-2. Implement a module-level entrypoint:
+2. Implement a module-level entrypoint with this exact signature:
    ```python
    def run(run_env: RunEnv, metrics_writer: MetricsWriter) -> dict:
        ...
    ```
-3. Register it in `src/awfr/scenarios/registry.py`:
+   The return value is a plain `dict` that is merged into `summary.json` — include any scenario-level counters you want surfaced (e.g. `{"sends_succeeded": 1000, "sends_failed": 2}`).
+3. Register the scenario in `src/awfr/scenarios/registry.py`:
    ```python
    from awfr.scenarios import your_scenario
 
@@ -315,13 +346,14 @@ Sends messages to an SQS queue using `sqs:SendMessage`.
        "your_scenario": your_scenario.run,
    }
    ```
-4. Pass `--scenario your_scenario` to `tools/run_task.py`.
+4. Add a sample config JSON under `loadtest/configs/`.
+5. Update `README.md` with the config schema.
 
 The registry is the single source of truth — unknown scenario names fail fast with exit code 2.
 
 ---
 
-## RunTask contract
+## RunTask Contract
 
 Exactly **3** environment variable overrides are passed to ECS:
 
@@ -344,9 +376,9 @@ Exactly **3** environment variable overrides are passed to ECS:
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 2 | Config error (bad env vars / S3 config) |
+| 2 | Config error (bad env vars / S3 config / unknown scenario) |
 | 3 | Auth error (IAM / credentials) |
-| 4 | Runtime error (scenario fault) |
+| 4 | Runtime error (scenario fault / SIGTERM) |
 | 5 | Unexpected error |
 | — | No exit code → OOM-kill or spot interruption |
 
@@ -486,9 +518,9 @@ fields @timestamp, @message
 ## Cost Model
 
 - **Fargate:** billed per-second on vCPU + memory, with a 1-minute minimum per task. Short smoke runs are cheap; sustained high-RPS runs accumulate quickly.
-- **S3 storage:** bounded by the lifecycle rule — objects under `runs/*` expire after `artifacts_retention_days` days (default 30). Config objects under `configs/*` are tiny and long-lived until manually cleaned.
+- **S3 storage:** bounded by the lifecycle rule — objects under `runs/*` and `configs/*` expire after `artifacts_retention_days` days (default 30).
 - **S3 PUT requests:** one upload at end of run by default. Enabling `metrics_upload_interval_seconds` increases PUT count proportionally — keep it off unless you need mid-run visibility.
-- **CloudWatch Logs:** retention is set to 3–7 days by default (see `logs.tf`). Each task emits minimal stdout (start line + end line), so log volume is low.
+- **CloudWatch Logs:** retention is set to 3–7 days by default (see `logs.tf`). Each task emits minimal stdout (start line + end line + scenario output), so log volume is low.
 - **Container Insights:** off by default. Enabling it (`container_insights = true`) adds CloudWatch metrics and increases cost noticeably for high-frequency runs.
 
 ---
@@ -500,7 +532,7 @@ fields @timestamp, @message
 | `project` | `awfr` | Name prefix for all resources |
 | `region` | `eu-west-1` | AWS region |
 | `image_tag` | `latest` | ECR image tag used in the task definition |
-| `artifacts_retention_days` | `30` | S3 lifecycle expiry on `runs/*` |
+| `artifacts_retention_days` | `30` | S3 lifecycle expiry on `runs/*` and `configs/*` |
 | `container_insights` | `false` | Enable ECS Container Insights (optional, not required for any scenario — see Key Variables above) |
 | `enable_sqs_permissions` | `false` | Attach SQS IAM policies to task role (required for `sqs_enqueue` or SQS monitoring) |
 | `sqs_queue_arns` | `[]` | List of SQS queue ARNs the task role may send to and monitor (required when `enable_sqs_permissions=true`) |
@@ -548,7 +580,7 @@ aws-fargate-workload-runner/
 
 ---
 
-## Running tests
+## Running Tests
 
 ```bash
 pip install -r requirements-dev.txt
