@@ -33,6 +33,7 @@ test-results/
 
 # Local configs (keep real endpoints and credentials out of VCS)
 *.local.json
+*.local.txt
 
 # Misc
 .DS_Store
