@@ -108,16 +108,21 @@ def run() -> int:
     # ------------------------------------------------------------------ #
     # 4. SIGTERM / SIGINT handler                                          #
     # ------------------------------------------------------------------ #
-    interrupted = False
+    # SIGTERM: raised as KeyboardInterrupt so the existing except-block
+    # handles it: scenario stops, monitors stop, artifacts are uploaded,
+    # and the process exits with RUNTIME_ERROR.
+    #
+    # SIGINT (Ctrl-C): left at the Python default, which also raises
+    # KeyboardInterrupt.  We do NOT override SIGINT here — overriding it
+    # with a plain flag-setter would make the flag unreachable (it was
+    # never read) and silently break Ctrl-C during local testing.
     final_exit_code = exit_codes.SUCCESS
 
-    def _signal_handler(signum: int, _frame: Any) -> None:
-        nonlocal interrupted
-        interrupted = True
-        print(f"SIGNAL {signum} received; will flush and exit after current work.", flush=True)
+    def _sigterm_handler(signum: int, _frame: Any) -> None:
+        print("SIGTERM received; stopping scenario and uploading artifacts.", flush=True)
+        raise KeyboardInterrupt
 
-    signal.signal(signal.SIGTERM, _signal_handler)
-    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _sigterm_handler)
 
     # ------------------------------------------------------------------ #
     # 5. Start periodic upload (optional, default off)                     #

@@ -303,7 +303,21 @@ def main() -> int:
 
     while True:
         resp2 = ecs.describe_tasks(cluster=cluster_arn, tasks=[task_arn])
-        task = resp2["tasks"][0]
+        desc_failures = resp2.get("failures", [])
+        tasks_list = resp2.get("tasks", [])
+
+        if not tasks_list:
+            # ECS returns an empty tasks list (and a failures entry) when the task
+            # ARN is unknown — e.g. wrong cluster, cross-region mismatch, or the
+            # task record has expired (~1 h after stopping).
+            reason = desc_failures[0].get("reason", "unknown") if desc_failures else "no tasks returned"
+            print(
+                f"describe_tasks returned no task (reason={reason!r}); cannot determine outcome.",
+                file=sys.stderr,
+            )
+            return 1
+
+        task = tasks_list[0]
         status = task.get("lastStatus", "UNKNOWN")
 
         if status != last_status:
@@ -319,7 +333,6 @@ def main() -> int:
                 pass  # stream not yet created; retry next poll
 
         if status == "STOPPED":
-            task = resp2["tasks"][0]
             break
 
         time.sleep(args.poll_seconds)
