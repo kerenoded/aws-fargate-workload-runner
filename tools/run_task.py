@@ -304,7 +304,7 @@ def main() -> int:
     # --- Wait for task to stop, tailing logs incrementally while running ---
     print(f"\nWaiting for task to stop (polling every {args.poll_seconds}s)...")
 
-    logs_client = boto3.Session(**_REGION_KW).client("logs") if args.tail and log_group else None
+    logs_client = session.client("logs") if args.tail and log_group else None
     tail_start_ms = int(time.time() * 1000)
     last_status = None
 
