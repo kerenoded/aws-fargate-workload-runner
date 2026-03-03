@@ -220,8 +220,7 @@ python tools/run_task.py --scenario <name> (--config-file PATH | --config-json J
 
 > **Task-def revision accumulation:** each `--image-tag` invocation registers a new ECS task-def revision. ECS has a soft limit of 1 million revisions per family. For frequent CI-style usage, periodically deregister old revisions with `aws ecs deregister-task-definition`.
 
-![ECS run logs tailed in the terminal](docs/images/ECS-run-logs.png)
-
+![ECS run logs tailed in the terminal](docs/images/fargate-runner-sqs-example.gif)
 ---
 
 ### `tools/build_push.py`
@@ -486,6 +485,7 @@ Each poll prints one line per queue:
 [SQS][config][run_id=abc-123] queue=my-queue visibility_timeout_sec=30 receive_wait_sec=0
 [SQS][12:03:30][run_id=abc-123] queue=my-queue visible=42 in_flight=8 delayed=0
 ```
+![ECS run logs tailed in the terminal](docs/images/ECS-run-logs.png)
 
 The `[SQS][config]` line is printed **once per queue on the first poll** — it captures `VisibilityTimeout` and `ReceiveMessageWaitTimeSeconds`, which explain in-flight behaviour and whether long-polling is active without repeating them every interval.
 
